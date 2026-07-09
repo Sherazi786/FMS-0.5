@@ -4,7 +4,7 @@ import { users, branches } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyPassword, hashPassword } from "@/lib/utils";
 
-const JWT_SECRET = "workshop-local-secret-key-2024";
+const JWT_SECRET = process.env.JWT_SECRET || "workshop-local-secret-key-2024-change-in-prod";
 
 // Server-side: verify token from header or cookie, return user info
 export async function getSessionFromRequest(req: Request) {
@@ -67,67 +67,77 @@ export function createToken(payload: object): string {
 }
 
 export async function loginUser(username: string, password: string) {
-  const [user] = await db
-    .select({
-      id: users.id,
-      username: users.username,
-      password: users.password,
-      fullName: users.fullName,
-      role: users.role,
-      branchId: users.branchId,
-      status: users.status,
-    })
-    .from(users)
-    .where(eq(users.username, username))
-    .limit(1);
+  try {
+    const [user] = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        password: users.password,
+        fullName: users.fullName,
+        role: users.role,
+        branchId: users.branchId,
+        status: users.status,
+      })
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
 
-  if (!user || user.status !== "active") return null;
+    if (!user || user.status !== "active") return null;
 
-  const isValid = await verifyPassword(password, user.password);
-  if (!isValid) return null;
+    const isValid = await verifyPassword(password, user.password);
+    if (!isValid) return null;
 
-  const { password: _, ...userData } = user;
-  const token = createToken({
-    id: userData.id,
-    username: userData.username,
-    role: userData.role,
-    branchId: userData.branchId,
-  });
+    const { password: _, ...userData } = user;
+    const token = createToken({
+      id: userData.id,
+      username: userData.username,
+      role: userData.role,
+      branchId: userData.branchId,
+    });
 
-  return { user: userData, token };
+    return { user: userData, token };
+  } catch (err) {
+    console.error("Login error:", err);
+    return null;
+  }
 }
 
 export async function seedDefaultAdmin() {
-  const [admin] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.username, "supervisor1"))
-    .limit(1);
+  try {
+    const [admin] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, "supervisor1"))
+      .limit(1);
 
-  if (!admin) {
-    const hashedPw = await hashPassword("password123");
-    // Insert branches first if not exist
-    const existingBranches = await db.select().from(branches).limit(1);
-    let branch1Id = 1;
-    if (existingBranches.length === 0) {
-      const [b1] = await db
-        .insert(branches)
-        .values({ name: "Central Workshop", location: "Main Campus", code: "CW01" })
-        .returning();
-      branch1Id = b1.id;
-      await db.insert(branches).values([
-        { name: "North Workshop", location: "North Zone", code: "NW01" },
-        { name: "South Workshop", location: "South Zone", code: "SW01" },
+    if (!admin) {
+      const hashedPw = await hashPassword("password123");
+      // Insert branches first if not exist
+      const existingBranches = await db.select().from(branches).limit(1);
+      let branch1Id = 1;
+      if (existingBranches.length === 0) {
+        const [b1] = await db
+          .insert(branches)
+          .values({ name: "Central Workshop", location: "Main Campus", code: "CW01" })
+          .returning();
+        branch1Id = b1.id;
+        await db.insert(branches).values([
+          { name: "North Workshop", location: "North Zone", code: "NW01" },
+          { name: "South Workshop", location: "South Zone", code: "SW01" },
+        ]);
+      } else {
+        branch1Id = existingBranches[0].id;
+      }
+
+      await db.insert(users).values([
+        { username: "supervisor1", password: hashedPw, fullName: "Saleem Akhtar", role: "workshop_supervisor", branchId: branch1Id, status: "active" },
+        { username: "store1", password: hashedPw, fullName: "Aqib Sherazi", role: "store_executive", branchId: branch1Id, status: "active" },
+        { username: "procurement1", password: hashedPw, fullName: "Bashir Ahmad", role: "procurement_executive", branchId: branch1Id, status: "active" },
+        { username: "fleetmanager", password: hashedPw, fullName: "Hamza Warich", role: "fleet_manager", branchId: null, status: "active" },
+        { username: "accountant", password: hashedPw, fullName: "Adnan Zonal Accountant", role: "accountant", branchId: null, status: "active" },
       ]);
-    } else {
-      branch1Id = existingBranches[0].id;
     }
-
-    await db.insert(users).values([
-      { username: "supervisor1", password: hashedPw, fullName: "Ahmed Khan", role: "workshop_supervisor", branchId: branch1Id, status: "active" },
-      { username: "store1", password: hashedPw, fullName: "Usman Malik", role: "store_executive", branchId: branch1Id, status: "active" },
-      { username: "procurement1", password: hashedPw, fullName: "Bilal Ahmed", role: "procurement_executive", branchId: branch1Id, status: "active" },
-      { username: "fleetmanager", password: hashedPw, fullName: "Hassan Raza", role: "fleet_manager", branchId: null, status: "active" },
-    ]);
+  } catch (err) {
+    console.error("Seed error:", err);
   }
 }

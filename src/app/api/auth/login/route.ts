@@ -3,8 +3,9 @@ import { loginUser, seedDefaultAdmin } from "@/lib/auth-server";
 
 export async function POST(req: NextRequest) {
   try {
+    // Try seeding default data (safe to call multiple times)
     await seedDefaultAdmin();
-    
+
     const body = await req.json();
     const { username, password } = body;
 
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await loginUser(username, password);
+    const result = await loginUser(username.trim(), password);
 
     if (!result) {
       return NextResponse.json(
@@ -30,17 +31,20 @@ export async function POST(req: NextRequest) {
       user: result.user,
     });
 
-    // Also set cookie as fallback
+    // Set cookie as fallback
     response.headers.set(
       "Set-Cookie",
       `session_token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`
     );
 
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Login error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      {
+        error: "Login service error. Please try again or contact support.",
+        details: process.env.NODE_ENV === "development" ? error?.message : undefined,
+      },
       { status: 500 }
     );
   }
